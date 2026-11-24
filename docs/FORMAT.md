@@ -17,6 +17,36 @@ A packed clip (made by `tools/clippack.py`, optional) has `frame_..._f<F>.bin.s<
 (name, size and SHA-256 of every original file): the file's bytes regrouped by their position within a `k`-byte texel (all first bytes, then all
 second bytes, ...), compressed with zstd. `tools/cybocap.py` and `clippack.load()` read both kinds.
 
+## GPU-packed files (`*.bin.gp`, CyboCap 1.1 with `GpuPack=1`)
+
+Color, depth and motion are packed on the GPU; `frame_..._f<F>.bin.gp` holds exactly the bytes the `.bin` would have held, losslessly coded.
+32-bit little-endian words:
+
+| Word | What |
+|---|---|
+| 0 | Words in the file |
+| 1 | Magic `0x50475943` ("CYGP") |
+| 2 | Version (1) |
+| 3, 4 | Width, height |
+| 5 | Layout: 0 R11G11B10 (channels 11/11/10 bits), 1 R24G8 / D24S8 (24 + 8), 2 RG32F, 3 R32F / D32F, 4 RGBA16F, 5 RG16F |
+| 6, 7 | Tiles across, tiles down (8x8 texel tiles) |
+| 8 ... | One word per tile (row-major): the word where that tile's record starts |
+| then | Tile records, in any order |
+
+**Values.** Each channel is an integer of its width: the stored bits for layouts 0 and 1; for floats (2 to 5) the bits mapped to an
+order-preserving integer (negative: all bits flipped; otherwise the sign bit set).
+
+**Residuals.** Inside each 8-row tile row, value minus (left + above - above-left); in the tile row's first row, value minus left (texels
+outside the image count as 0). Taken modulo 2^width as the integer nearest 0, then zigzagged ((r << 1) ^ (r >> 31)).
+
+**Tile record.** Word 0: per channel one byte, `b | 0x80` if the channel uses flags. Word 1: per channel one byte, `B - b` (B = bits of the
+tile's largest residual). Then for each channel in turn:
+- 64 fields in texel order (row-major), each `b + f` bits (f = 1 with flags), least significant bit first, packed into `2 * (b + f)` words:
+  the residual's low `b` bits, and above them the flag (set when the residual needs more than `b` bits);
+- with flags: for each flagged texel in order, its high `B - b` bits, packed the same way into `ceil(flagged * (B - b) / 32)` words.
+
+`tools/clippack.py` (`gp_decode`) is the reference decoder.
+
 ## Formats seen so far
 
 | DXGI | Name | Bytes per texel | How `cybocap.py` reads it |

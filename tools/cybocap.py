@@ -24,7 +24,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from clippack import load
 
-FILE = re.compile(r'frame_(\d+)_([a-z]+)_(\d+)x(\d+)_f(\d+)\.bin(?:\.s\d+\.zst)?$')
+FILE = re.compile(r'frame_(\d+)_([a-z]+)_(\d+)x(\d+)_f(\d+)\.bin(?:\.s\d+\.zst|\.gp)?$')
 # DXGI format -> (bytes per texel, short name)
 FMT = {2: (16, 'RGBA32F'), 10: (8, 'RGBA16F'), 16: (8, 'RG32F'), 19: (8, 'R32G8X24'), 20: (8, 'D32S8X24'), 24: (4, 'RGB10A2'), 26: (4, 'R11G11B10F'),
        28: (4, 'RGBA8'), 34: (4, 'RG16F'), 39: (4, 'R32 typeless'), 40: (4, 'D32F'), 41: (4, 'R32F'), 44: (4, 'R24G8'), 45: (4, 'D24S8'), 46: (4, 'R24X8'),

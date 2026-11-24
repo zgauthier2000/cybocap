@@ -35,9 +35,53 @@ def decode(path):
     k = int(re.search(r'\.s(\d+)\.zst$', path).group(1))
     return unshuffle(zstandard.ZstdDecompressor().decompress(open(path, 'rb').read()), k)
 
+# ---------- GPU-packed files (*.bin.gp, written by the DLL with GpuPack=1; layout in docs/FORMAT.md) ----------
+GP_CH = {0: [(0, 11), (11, 11), (22, 10)], 1: [(0, 24), (24, 8)], 2: [(0, 32), (0, 32)], 3: [(0, 32)], 4: [(0, 16), (16, 16), (0, 16), (16, 16)], 5: [(0, 16), (16, 16)]}
+
+def _bits(S64, pos, width):
+    """width (0..32) bits starting at bit `pos` of the word array (vectorized)"""
+    w = (pos >> 5).astype(np.int64); sh = (pos & 31).astype(np.uint64)
+    v = (S64[w] | (S64[w + 1] << np.uint64(32))) >> sh
+    return v & ((np.uint64(1) << width.astype(np.uint64)) - np.uint64(1))
+
+def gp_decode(data):
+    """bytes of a .bin.gp file -> the bytes the raw .bin would have held"""
+    S = np.frombuffer(data, '<u4'); used, magic, ver, W, H, F, TX, TY = (int(v) for v in S[:8])
+    if magic != 0x50475943 or ver != 1 or used != len(S): raise ValueError('not a CyboCap GPU-packed file (or truncated)')
+    S64 = np.concatenate([S, np.zeros(2, np.uint32)]).astype(np.uint64); nt = TX * TY; ch = GP_CH[F]; C = len(ch)
+    rec = S[8:8 + nt].astype(np.int64); h0 = S64[rec]; h1 = S64[rec + 1]; at = rec + 2
+    i64 = np.arange(64, dtype=np.int64)
+    out = []
+    for c in range(C):
+        w = ch[c][1]; b = ((h0 >> np.uint64(8 * c)) & np.uint64(127)).astype(np.int64); f = ((h0 >> np.uint64(8 * c + 7)) & np.uint64(1)).astype(np.int64)
+        E = ((h1 >> np.uint64(8 * c)) & np.uint64(255)).astype(np.int64); fw = b + f
+        pos = at[:, None] * 32 + i64[None, :] * fw[:, None]
+        val = _bits(S64, pos, np.broadcast_to(fw[:, None], pos.shape))
+        low = val & ((np.uint64(1) << b[:, None].astype(np.uint64)) - np.uint64(1))
+        flag = ((val >> b[:, None].astype(np.uint64)) & np.uint64(1)).astype(bool) & (f[:, None] == 1)
+        nflag = flag.sum(1); ext = at + 2 * fw
+        rank = np.cumsum(flag, 1) - 1
+        hpos = ext[:, None] * 32 + rank * E[:, None]
+        hi = np.where(flag, _bits(S64, np.where(flag, hpos, 0), np.broadcast_to(E[:, None], hpos.shape)), np.uint64(0))
+        z = (low | (hi << b[:, None].astype(np.uint64))).astype(np.int64)
+        at = ext + (nflag * E + 31) // 32
+        r = (z >> 1) ^ -(z & 1)                                       # unzigzag
+        img = r.reshape(TY, TX, 8, 8).transpose(0, 2, 1, 3).reshape(TY * 8, TX * 8)
+        img = np.cumsum(img, axis=1).reshape(TY, 8, TX * 8).cumsum(axis=1).reshape(TY * 8, TX * 8)[:H, :W]
+        out.append(img.astype(np.uint64) & np.uint64((1 << w) - 1))
+    def unflip32(v): return np.where(v & np.uint64(0x80000000), v ^ np.uint64(0x80000000), (~v) & np.uint64(0xFFFFFFFF))
+    def unflip16(v): return np.where(v & np.uint64(0x8000), v ^ np.uint64(0x8000), (~v) & np.uint64(0xFFFF))
+    if F == 0: words = out[0] | (out[1] << np.uint64(11)) | (out[2] << np.uint64(22)); return words.astype('<u4').tobytes()
+    if F == 1: return (out[0] | (out[1] << np.uint64(24))).astype('<u4').tobytes()
+    if F == 2: return np.stack([unflip32(out[0]), unflip32(out[1])], -1).astype('<u4').tobytes()
+    if F == 3: return unflip32(out[0]).astype('<u4').tobytes()
+    if F == 4: return np.stack([unflip16(o) for o in out], -1).astype('<u2').tobytes()
+    if F == 5: return np.stack([unflip16(out[0]), unflip16(out[1])], -1).astype('<u2').tobytes()
+
 def load(path):
-    """Bytes of a clip file: the .bin itself, or its packed twin <path>.s<k>.zst."""
+    """Bytes of a clip file: the .bin itself, its GPU-packed twin <path>.gp, or its packed twin <path>.s<k>.zst."""
     if os.path.exists(path): return open(path, 'rb').read()
+    if os.path.exists(path + '.gp'): return gp_decode(open(path + '.gp', 'rb').read())
     z = glob.glob(glob.escape(path) + '.s*.zst')
     if not z: raise FileNotFoundError(path)
     return decode(z[0])

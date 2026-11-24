@@ -19,10 +19,12 @@ inputs that OptiScaler hands to FSR); capturing other upscalers' inputs directly
 - **FSR capture DLL** (`amd_fidelityfx_upscaler_dx12.dll`): a small DLL that sits in front of FSR's upscaler DLL, passes the game's calls
   through, and copies the inputs while you record. By default it runs FSR as FSR 3.1.x, the fastest version in the FSR DLL on any GPU,
   so recording costs as little as possible on slower PCs (see `FastUpscaler` below). The clips do not depend on which FSR version runs.
+  Since 1.1 it also packs color, depth and motion losslessly **on the GPU** before saving them (`GpuPack`, on by default): in our tests
+  clips were about a third of their raw size, so the drive keeps up much longer.
 - **tools/cybocap.py**: reads clips and exports them (NumPy, EXR, PNG previews, MP4, a per-frame settings table, or an nr-record recording).
-- **tools/clippack.py**: optional lossless packing, about half the size.
+- **tools/clippack.py**: optional lossless packing of raw clips (about half the size), and the decoder for GPU-packed files.
 
-**Status:** this version is tested under Proton on Linux (RX 7800 XT) in Shadow of the Tomb Raider; earlier versions recorded clips in
+**Status:** this version is tested under Proton on Linux (RX 7800 XT) in Shadow of the Tomb Raider (GPU packing checked byte for byte there); earlier versions recorded clips in
 Cyberpunk 2077, Stellar Blade and the Black Myth: Wukong benchmark the same way. **Windows is untested**: reports welcome (issue with your GPU, game, and `cybocap.log`).
 
 ## What it records, and what it does not
@@ -46,7 +48,7 @@ were built for different jobs. This table is from nr-record's own documentation 
 | Inputs it sees | FSR's inputs (DLSS / XeSS games: after OptiScaler's translation to FSR) | What the game gives DLSS, FSR or XeSS; also frame generation and ray reconstruction inputs |
 | Graphics APIs | D3D12 | D3D12 and Vulkan |
 | Upscaled output | Not recorded | Recorded |
-| Storage | Plain files, uncompressed (about 46 MB per frame at 2258x1270); optional lossless packing afterwards (about half) | Coded losslessly on the GPU while recording, then zstd (their docs: about 26 MB per real frame at 4K for frame generation inputs) |
+| Storage | Packed losslessly on the GPU while recording (since 1.1; about 16.5 MB per frame at 2258x1270 in our SOTTR test, 36% of raw), or plain uncompressed files with `GpuPack=0` (about 46 MB) | Coded losslessly on the GPU while recording, then zstd (their docs: about 26 MB per real frame at 4K for frame generation inputs) |
 | When the disk falls behind | The game never loses a frame: short clips fit in memory; Shift+F10 ends the clip one frame before the game would wait. Every clip is an unbroken run | By design, frames are dropped and the gap is marked, so the game is never held up |
 | Recording | F10 / Shift+F10, fixed or longest-possible clips | Start / stop key, records until stopped |
 | Reading recordings | One file per input and frame plus a text file of parameters; `cybocap.py` exports NumPy, EXR, PNG, MP4, CSV / JSON, and nr-record | Their own binary format and reader; replay through real upscaler DLLs; a side-by-side viewer |
@@ -67,7 +69,7 @@ that any language can read. `cybocap.py nrrecord` converts a CyboCap clip into a
 | FSR DLLs | OptiScaler's folder must hold AMD's FidelityFX loader and upscaler DLLs: `amd_fidelityfx_loader_dx12.dll` and `amd_fidelityfx_upscaler_dx12.dll` (FidelityFX SDK 2.x, as OptiScaler uses for FSR 3.1.4 and later). CyboCap goes in front of the upscaler DLL |
 | GPU | Any GPU that runs FSR 3.1 in D3D12 (AMD, NVIDIA, Intel). With `FastUpscaler=1` (default) FSR runs as FSR 3.1.x, so FSR 4 support is not needed |
 | Memory | 16 GB RAM or more; 32 GB recommended. While a clip is recorded CyboCap holds up to 128 frames in RAM (about 4 to 9 GB, depending on the render size); on 16 GB set `Slots=48` or lower |
-| Disk | An SSD, ideally NVMe, with room for clips: about 5.5 GB per 2-second clip at a 2258x1270 render size (uncompressed). Long clips need a fast drive (see Recording) |
+| Disk | An SSD, ideally NVMe, with room for clips: about 2 GB per 2-second clip at a 2258x1270 render size with GPU packing (5.5 GB uncompressed). Long clips need a fast drive (see Recording) |
 
 The DLL is built as a single file with its runtime included: no Visual C++ redistributable or other install is needed.
 
@@ -111,8 +113,22 @@ Clips are written while you play. A second press while the last clip is still be
 **Why 2 seconds, and what Shift+F10 does.** A frame of inputs is large: 44 to 73 MB uncompressed (about 46 MB at 2258x1270), so 60 FPS
 needs about 2.7 GB/s of disk writes. The DLL keeps up to 128 frames in memory and writes them in the background, so a short clip never slows
 the game. Longer clips depend on the drive: in our tests NVMe drives wrote 2 to 2.4 GB/s at first and 0.8 to 1.1 GB/s once their fast write
-cache ran out. Shift+F10 records until the memory buffer is about to run out and stops one frame before the game would have to wait
-(6.5 s at 60 FPS in one test). Set `LongStopWhenFull=0` to always record `LongSeconds` and accept the slowdown.
+cache ran out. Shift+F10 records until the memory buffer is about to run out and stops one frame before the game would have to wait.
+Set `LongStopWhenFull=0` to always record `LongSeconds` and accept the slowdown.
+
+**GPU packing (`GpuPack=1`, default since 1.1).** Before the frames leave the GPU, a compute shader packs color, depth and motion losslessly
+(each texel predicted from its neighbors, each 8x8 tile stored with only the bits it needs). In Shadow of the Tomb Raider on an RX 7800 XT:
+
+| | GpuPack=0 (1.0) | GpuPack=1 (1.1) |
+|---|---|---|
+| Size per frame (2258x1270) | 45.9 MB | 16.5 MB (36%; color 53%, depth 30%, motion 31%) |
+| Longest Shift+F10 clip we recorded | 6.5 s (fresh drive) | 11.1 s (the same drive after heavy use, writing only about 0.55 GB/s) |
+| Frames over 25 ms during a clip | 0 | 0 |
+
+Every packed file was checked against a raw copy of the same frame (366 files, all identical). The packing costs some GPU time on each
+recorded frame: on the 7800 XT it did not show in the frame times; on slower GPUs it is untested (set `GpuPack=0` if recording feels rough).
+Memory use is the same as without packing (the buffers are sized for the worst case). Packed files end in `.bin.gp`; the tools read them
+like the raw ones.
 
 **Faster drives.** The defaults are set for drives like ours (2 to 2.4 GB/s at first). On a faster PCIe 4.0 / 5.0 NVMe, try in `cybocap.ini`:
 
@@ -122,6 +138,7 @@ cache ran out. Shift+F10 records until the memory buffer is about to run out and
 | `LongSeconds` | 30, 60 | Shift+F10's cap. Shift+F10 still stops before the game would wait, so a higher cap only lets a fast drive record longer |
 | `Seconds` | 4, 5, ... | F10's length. Unlike Shift+F10, F10 does not stop early: raise it only if your drive keeps up, or the game slows down for the rest of the clip |
 | `Slots` | 128 (the most) | Frames held in memory while the disk catches up; more RAM means longer clips at full speed |
+| `GpuPack` | 1 (keep) | Packed frames are about a third the size, so any drive keeps up longer |
 
 How to tell: `cybocap.log` ends each clip with `game waited N ms for free slots`. 0 ms means the drive kept up; for Shift+F10, the
 `ring full at frame N` line shows how far it got. Keep the clips folder on the fast drive (`Folder=`).
@@ -139,11 +156,14 @@ not in it.
 | `LongSeconds` | 20 | Shift+F10 longest clip |
 | `LongStopWhenFull` | 1 | Shift+F10 stops before the game would wait |
 | `FastUpscaler` | 1 | Run FSR as FSR 3.1.x while CyboCap is installed (fastest; lower picture quality than FSR 4). 0 = the version OptiScaler picks |
+| `GpuPack` | 1 | Pack color, depth and motion losslessly on the GPU before saving (about a third the size). 0 = plain files |
+| `GpuPackVerify` | 0 | Tests only: also save raw copies of the packed frames (more memory and disk), to check the packing in your game |
 | `Writers` | 1 | Writer threads (1-4); more helped only on drives with write cache left |
 | `Slots` | 128 | Frames held in memory (2-128) |
 | `Folder` | empty | Where clips go; empty = `clips` next to the DLL |
 
-Environment variables `CYBOCAP_DIR`, `CYBOCAP_FRAMES`, `CYBOCAP_LONG_FRAMES`, `CYBOCAP_WRITERS`, `CYBOCAP_SLOTS` override the file.
+Environment variables `CYBOCAP_DIR`, `CYBOCAP_FRAMES`, `CYBOCAP_LONG_FRAMES`, `CYBOCAP_WRITERS`, `CYBOCAP_SLOTS`, `CYBOCAP_FAST_UPSCALER`,
+`CYBOCAP_GPU_PACK` override the file.
 
 ## Reading clips
 
@@ -157,7 +177,8 @@ python tools/cybocap.py nrrecord clips/clip_20261124_075746 rec            # nr-
 
 Values: color is the game's linear HDR color before upscaling (pre-exposed by `pre_exposure`); depth as the game stores it (`depth_inverted`
 says whether near is 1); motion as stored, and `motion_px` = motion x `motion_scale` in render pixels. The PNG previews use a simple
-x/(1+x) tone curve, not the game's tone mapping. File layout: [docs/FORMAT.md](docs/FORMAT.md).
+x/(1+x) tone curve, not the game's tone mapping. File layout: [docs/FORMAT.md](docs/FORMAT.md). GPU-packed files are decoded on the fly
+(about 1 second per frame in Python), so exports of long clips take a while.
 
 The nr-record export follows the format description Apex Compute publishes for their nr-record tools
 ([github.com/apex-compute/ANR](https://github.com/apex-compute/ANR), `record/FORMAT.md`); it was checked with our own decoder, not with theirs.
@@ -169,7 +190,8 @@ python tools/cybocap.py share clips/clip_20261124_075746
 ```
 
 1. Shows the terms below and asks you to type `yes`.
-2. Packs the clip losslessly into one file, `clip_<time>_<game>.cybocap.tar` (about half the size; your original clip is kept).
+2. Puts the clip into one file, `clip_<time>_<game>.cybocap.tar` (raw files packed losslessly to about half; GPU-packed files are already
+   small; your original clip is kept).
 3. You upload that file wherever you like (Google Drive, MEGA, Dropbox, your own server, ...) with a link that downloads without signing in,
    and paste the link when asked (or later: `share <clip> --agree --link <url>`).
 4. When you say yes, it sends the link and the clip's details (game, frames, sizes, file size, SHA-256) to Cyboman. Otherwise it prints the
@@ -187,12 +209,15 @@ python tools/clippack.py pack clips/clip_20261124_075746 --replace  # deletes th
 python tools/clippack.py unpack clips/clip_..._075746.packed restored
 ```
 
-Lossless (every file is decoded and compared before anything is deleted). Measured on our game clips: 20 to 51% of the original size. Takes about
-as long as copying the clip twice. Nothing is packed unless you run it.
+For raw clips (`GpuPack=0`, or clips from 1.0). Lossless (every file is decoded and compared before anything is deleted). Measured on our
+game clips: 20 to 51% of the original size. Takes about as long as copying the clip twice. Nothing is packed unless you run it. GPU-packed
+files (`.bin.gp`) are left as they are.
 
 ## Building
 
-`MINGW=<llvm-mingw>/bin ./build.sh` with [llvm-mingw](https://github.com/mstorsjo/llvm-mingw). The FidelityFX SDK headers in
+`MINGW=<llvm-mingw>/bin ./build.sh` with [llvm-mingw](https://github.com/mstorsjo/llvm-mingw). The GPU packing shader
+(`src/shaders/gpupack.hlsl`) is compiled to signed DXIL with Microsoft's [DirectX Shader Compiler](https://github.com/microsoft/DirectXShaderCompiler)
+(`dxc -T cs_6_0 -E main -O3 -Fh gpupack_dxil.h -Vn g_gpupack gpupack.hlsl`); the result is checked in. The FidelityFX SDK headers in
 `third_party/ffx` are AMD's (MIT, see their NOTICE).
 
 ## License

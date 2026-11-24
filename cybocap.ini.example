@@ -11,6 +11,8 @@ LongStopWhenFull=1
 ; 1 = while CyboCap is installed, FSR runs as FSR 3.1.x (the fastest version in the FSR DLL, on any GPU), whatever OptiScaler is set to.
 ; The clips are the same with any version (they hold the game's inputs). 0 = keep the version OptiScaler picks.
 FastUpscaler=1
+; 1 = pack color, depth and motion losslessly on the GPU before saving (about a third the size, so the drive keeps up longer). 0 = plain files
+GpuPack=1
 ; writer threads, 1-4 (1 is safest; 2-4 help only on a drive that still has fast write cache)
 Writers=1
 ; frames held in memory, 2-128 (each costs one frame of inputs in RAM: about 46 MB at 1270p)
