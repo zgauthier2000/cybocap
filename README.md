@@ -114,7 +114,19 @@ the game. Longer clips depend on the drive: in our tests NVMe drives wrote 2 to 
 cache ran out. Shift+F10 records until the memory buffer is about to run out and stops one frame before the game would have to wait
 (6.5 s at 60 FPS in one test). Set `LongStopWhenFull=0` to always record `LongSeconds` and accept the slowdown.
 
-**Memory:** while a clip is recorded, about 6 to 9 GB of system RAM (128 frames). Lower `Slots` on a 16 GB PC.
+**Faster drives.** The defaults are set for drives like ours (2 to 2.4 GB/s at first). On a faster PCIe 4.0 / 5.0 NVMe, try in `cybocap.ini`:
+
+| Setting | Try | Why |
+|---|---|---|
+| `Writers` | 2 to 4 | More write streams. In our tests 2 to 4 streams wrote 8 to 18% faster on a drive with fast write cache left, and slower on one without, so check the log |
+| `LongSeconds` | 30, 60 | Shift+F10's cap. Shift+F10 still stops before the game would wait, so a higher cap only lets a fast drive record longer |
+| `Seconds` | 4, 5, ... | F10's length. Unlike Shift+F10, F10 does not stop early: raise it only if your drive keeps up, or the game slows down for the rest of the clip |
+| `Slots` | 128 (the most) | Frames held in memory while the disk catches up; more RAM means longer clips at full speed |
+
+How to tell: `cybocap.log` ends each clip with `game waited N ms for free slots`. 0 ms means the drive kept up; for Shift+F10, the
+`ring full at frame N` line shows how far it got. Keep the clips folder on the fast drive (`Folder=`).
+
+**Memory:** while a clip is recorded, about 4 to 9 GB of system RAM (128 frames, depending on the render size). Lower `Slots` on a 16 GB PC.
 
 **The first press** after starting the game sets the memory aside (about 1.5 s pause); that clip starts a few frames later so the pause is
 not in it.
