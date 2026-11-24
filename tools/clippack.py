@@ -78,6 +78,16 @@ def gp_decode(data):
     if F == 4: return np.stack([unflip16(o) for o in out], -1).astype('<u2').tobytes()
     if F == 5: return np.stack([unflip16(out[0]), unflip16(out[1])], -1).astype('<u2').tobytes()
 
+def clipglob(pattern):
+    """glob for clip files that also finds packed ones: a pattern ending in .bin matches x.bin, x.bin.gp and x.bin.s<k>.zst;
+    returns the .bin names (give them to load() / fromfile())"""
+    names = set(glob.glob(pattern)) | {p[:-3] for p in glob.glob(pattern + '.gp')} | {p[:p.rindex('.bin') + 4] for p in glob.glob(pattern + '.s*.zst')}
+    return sorted(names)
+
+def fromfile(path, dtype):
+    """np.fromfile for clip files, packed or not"""
+    return np.frombuffer(load(path), dtype).copy()
+
 def load(path):
     """Bytes of a clip file: the .bin itself, its GPU-packed twin <path>.gp, or its packed twin <path>.s<k>.zst."""
     if os.path.exists(path): return open(path, 'rb').read()
@@ -123,7 +133,9 @@ def pack(clip, level, jobs, prog=None, replace=False):
     if not replace:
         print(f'{clip}: {len(rows)} files {raw / 1e9:.2f} -> {packed / 1e9:.2f} GB ({100 * packed / raw:.1f}%) in {time.time() - t0:.0f} s, all checked; packed copy {tmp}, original kept')
         return True
-    shutil.rmtree(clip); msg = 'removed'
+    cmd = os.environ.get('CLIPPACK_DELETE')                       # optional: a command that deletes the original folder instead (e.g. a safe-delete script)
+    if cmd: import subprocess; rc = subprocess.run(cmd.split() + [clip], capture_output=True, text=True); msg = (rc.stdout.strip().splitlines() or ['?'])[-1]
+    else: shutil.rmtree(clip); msg = 'removed'
     if os.path.exists(clip):
         print(f'{clip}: packed and checked, but the original could not be removed ({msg}): both kept'); return False
     os.rename(tmp, clip)

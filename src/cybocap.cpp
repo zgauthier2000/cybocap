@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// CyboCap 1.1, FSR capture: an input capture proxy for OptiScaler's FSR upscaler slot (D3D12).
+// CyboCap 1.2, FSR capture: an input capture proxy for OptiScaler's FSR upscaler slot (D3D12).
 //
 // Stands in for amd_fidelityfx_upscaler_dx12.dll, forwards every call to the real DLL (renamed amd_fidelityfx_upscaler_dx12_real.dll next to it)
 // and, while recording, copies each upscale dispatch's inputs (color, depth, motion vectors, exposure, reactive, transparency & composition) into
 // readback buffers on the game's own command list, before FSR runs. A writer thread saves them to disk.
 //
-// Hotkeys: F10 records a clip of `Seconds` (default 2), Shift+F10 the longest clip that does not make the game wait for the disk
+// Hotkeys: F10 records a clip of `Seconds` (default 2), Shift+F10 the longest clip that does not make the game wait for the disk; either key
+// during a clip ends it early
 // (ends when the readback ring is about to run out; capped at `LongSeconds`). Settings: cybocap.ini next to the DLL (see cybocap.ini.example);
 // environment variables CYBOCAP_DIR, CYBOCAP_FRAMES, CYBOCAP_LONG_FRAMES, CYBOCAP_WRITERS, CYBOCAP_SLOTS override it.
 // Output: <Folder>\clip_<time>\frame_NNN_<input>_<w>x<h>_f<DXGI format>.bin (rows packed), frame_NNN.txt (dispatch parameters), clip.txt.
@@ -75,7 +76,7 @@ static void init() {
     if (slots < 2) slots = 2; if (slots > 128) slots = 128; if (writers < 1) writers = 1; if (writers > 4) writers = 4;
     char lp[MAX_PATH]; snprintf(lp, MAX_PATH, "%s\\cybocap.log", base); logf = fopen(lp, "a");
     if (!logf) { snprintf(lp, MAX_PATH, "%scybocap.log", p); logf = fopen(lp, "a"); }
-    logm("CyboCap 1.1 (FSR capture) loaded; real loader %s: %s; ini %s (%s); F10 %.1f s, Shift+F10 up to %.1f s%s; env frames %s; auto %d, slots %d, writers %d, FastUpscaler %d, GpuPack %d", r, real ? "ok" : "MISSING", ini, haveIni ? "found" : "not found, defaults",
+    logm("CyboCap 1.2 (FSR capture) loaded; real loader %s: %s; ini %s (%s); F10 %.1f s, Shift+F10 up to %.1f s%s; env frames %s; auto %d, slots %d, writers %d, FastUpscaler %d, GpuPack %d", r, real ? "ok" : "MISSING", ini, haveIni ? "found" : "not found, defaults",
          shortSec, longSec, longStopWhenFull ? " (stops before the game would wait)" : "", genv("FRAMES") ? genv("FRAMES") : "-", autoStart, slots, writers, (int)fastUpscaler, (int)gpuPack);
 }
 
@@ -382,8 +383,14 @@ __declspec(dllexport) ffxReturnCode_t ffxDispatch(ffxContext* c, const ffxDispat
             dispatches++;
 
             static bool f10prev = false; const bool f10 = (GetAsyncKeyState(VK_F10) & 0x8000) != 0; bool key = f10 && !f10prev; f10prev = f10;
+            static int autoStop = genv("AUTO_STOP") ? atoi(genv("AUTO_STOP")) : -1; if (dispatches == autoStop) key = true;      // tests: a press at dispatch n
             const bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
 
+            // 1.2: F10 or Shift+F10 during a clip ends it after the frames recorded so far (they are written as a complete clip)
+            if (recording && key) {
+                if (recFrame < clipFrames) { logm("stopped by key at frame %d (of up to %d)", recFrame, clipFrames); clipFrames = recFrame; startDelay = 0; }
+                key = false;
+            }
             bool busy = false; if (!recording && key) { std::lock_guard<std::mutex> l(qm); busy = !q.empty(); for (int i = 0; i < slots && !busy; i++) busy = ring[i].state != 0; }
             if (busy) { logm("F10 ignored: the last clip is still being written (dispatch %d)", dispatches); key = false; }
             if (!recording && (key || dispatches == autoStart)) {
@@ -396,7 +403,7 @@ __declspec(dllexport) ffxReturnCode_t ffxDispatch(ffxContext* c, const ffxDispat
                   if (clipFrames < 1) clipFrames = 1; }
                 CreateDirectoryA(clip, NULL);
                 { char fn[MAX_PATH], exe[MAX_PATH]; GetModuleFileNameA(NULL, exe, MAX_PATH); const char* b = strrchr(exe, '\\'); snprintf(fn, MAX_PATH, "%s\\clip.txt", clip);
-                  FILE* cf = fopen(fn, "w"); if (cf) { fprintf(cf, "%sgame %s\nCyboCap 1.1\n", lastCreate, b ? b + 1 : exe); fclose(cf); } }
+                  FILE* cf = fopen(fn, "w"); if (cf) { fprintf(cf, "%sgame %s\nCyboCap 1.2\n", lastCreate, b ? b + 1 : exe); fclose(cf); } }
                 prealloc((const ffxDispatchDescUpscale*)h); recording = 1; recFrame = 0; waitMs = 0; logm("recording %d frames into %s (dispatch %d)", clipFrames, clip, dispatches);
             }
             if (recording && startDelay > 0) { if (--startDelay == 0) logm("recording starts now (dispatch %d), after the allocation pause", dispatches); }

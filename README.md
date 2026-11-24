@@ -133,8 +133,9 @@ To remove it: delete the capture DLL and rename `_real` back.
 |---|---|
 | F10 | `Seconds` long (default 2 s) |
 | Shift+F10 | As long as possible without slowing the game, up to `LongSeconds` (default 20 s) |
+| F10 or Shift+F10 **during** a clip | Ends the clip early; the frames recorded so far are saved as a normal clip (since 1.2) |
 
-Clips are written while you play. A second press while the last clip is still being written is ignored (see the log).
+Clips are written while you play. A press after a clip has ended but while it is still being written is ignored (see the log).
 
 **Why 2 seconds, and what Shift+F10 does.** A frame of inputs is large: 44 to 73 MB uncompressed (about 46 MB at 2258x1270), so 60 FPS
 needs about 2.7 GB/s of disk writes. The DLL keeps up to 128 frames in memory and writes them in the background, so a short clip never slows
