@@ -1,0 +1,19 @@
+; cybocap.ini: put next to the capture DLL (amd_fidelityfx_upscaler_dx12.dll). Read once when the game starts.
+; Environment variables CYBOCAP_DIR / CYBOCAP_FRAMES / CYBOCAP_LONG_FRAMES / CYBOCAP_WRITERS / CYBOCAP_SLOTS override these.
+[cybocap]
+; F10: clip length in seconds (2 s fits the memory buffer: the game never waits for the disk)
+Seconds=2
+; Shift+F10: longest clip in seconds
+LongSeconds=20
+; 1 = Shift+F10 stops early, one frame before the game would have to wait for the disk (no slowdown; length depends on the game and drive)
+; 0 = always record LongSeconds (the game slows down once the buffer is full)
+LongStopWhenFull=1
+; 1 = while CyboCap is installed, FSR runs as FSR 3.1.x (the fastest version in the FSR DLL, on any GPU), whatever OptiScaler is set to.
+; The clips are the same with any version (they hold the game's inputs). 0 = keep the version OptiScaler picks.
+FastUpscaler=1
+; writer threads, 1-4 (1 is safest; 2-4 help only on a drive that still has fast write cache)
+Writers=1
+; frames held in memory, 2-128 (each costs one frame of inputs in RAM: about 46 MB at 1270p)
+Slots=128
+; where clips go; empty = a "clips" folder next to the DLL
+Folder=
