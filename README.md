@@ -24,6 +24,32 @@ inputs that OptiScaler hands to FSR); capturing other upscalers' inputs directly
 - **tools/cybocap.py**: reads clips and exports them (NumPy, EXR, PNG previews, MP4, a per-frame settings table, or an nr-record recording).
 - **tools/clippack.py**: optional lossless packing of raw clips (about half the size), and the decoder for GPU-packed files.
 
+## Space savings
+
+**CyboCap 1.1 against 1.0** (Shadow of the Tomb Raider, 2258x1270 render size, RX 7800 XT):
+
+| Input | 1.0 (plain files) | 1.1 (GPU packing) |
+|---|---|---|
+| Color (R11G11B10) | 11.5 MB | 6.0 MB (53%) |
+| Depth (R24G8) | 11.5 MB | 3.5 MB (30%) |
+| Motion vectors (RG32F) | 22.9 MB | 7.0 MB (31%) |
+| **Per frame** | **45.9 MB** | **16.5 MB (36%)** |
+| A 10-second clip at 60 FPS | about 28 GB | about 10 GB |
+
+**CyboCap 1.1 against Apex Compute's nr-record, on the same frames.** We took an nr-record recording of the Black Myth: Wukong benchmark,
+decoded its inputs and fed exactly those textures to CyboCap 1.1 in our test harness. Both pack losslessly on the GPU; sizes per frame:
+
+| Input | Raw | nr-record | CyboCap 1.1 |
+|---|---|---|---|
+| Color (2228x1256, RGBA16F) | 22.4 MB | 10.8 MB (48%) | 11.2 MB (50%) |
+| Depth (2228x1256, 32-bit) | 11.2 MB | 4.2 MB (37%) | 4.6 MB (41%) |
+| Motion vectors (3840x2160, RG16F) | 33.2 MB | 4.1 MB (12%) | 5.5 MB (17%) |
+| **These three inputs** | **66.8 MB** | **19.0 MB (28%)** | **21.3 MB (32%)** |
+
+nr-record packs these inputs about 11% smaller than CyboCap; both bring them to about a third of their raw size. nr-record's frames also
+hold the upscaled output (another 26 MB per frame in this recording), which CyboCap does not record. nr-record's sizes are from its own
+recording (82 frames); CyboCap's are over 53 of the same frames.
+
 **Status:** this version is tested under Proton on Linux (RX 7800 XT) in Shadow of the Tomb Raider (GPU packing checked byte for byte there); earlier versions recorded clips in
 Cyberpunk 2077, Stellar Blade and the Black Myth: Wukong benchmark the same way. **Windows is untested**: reports welcome (issue with your GPU, game, and `cybocap.log`).
 
@@ -48,7 +74,7 @@ were built for different jobs. This table is from nr-record's own documentation 
 | Inputs it sees | FSR's inputs (DLSS / XeSS games: after OptiScaler's translation to FSR) | What the game gives DLSS, FSR or XeSS; also frame generation and ray reconstruction inputs |
 | Graphics APIs | D3D12 | D3D12 and Vulkan |
 | Upscaled output | Not recorded | Recorded |
-| Storage | Packed losslessly on the GPU while recording (since 1.1; about 16.5 MB per frame at 2258x1270 in our SOTTR test, 36% of raw), or plain uncompressed files with `GpuPack=0` (about 46 MB) | Coded losslessly on the GPU while recording, then zstd (their docs: about 26 MB per real frame at 4K for frame generation inputs) |
+| Storage | Packed losslessly on the GPU while recording (since 1.1), or plain files with `GpuPack=0`. Same Wukong inputs: 21.3 MB per frame (32% of raw) | Coded losslessly on the GPU while recording, then zstd. Same Wukong inputs: 19.0 MB per frame (28% of raw), plus the upscaled output (see [Space savings](#space-savings)) |
 | When the disk falls behind | The game never loses a frame: short clips fit in memory; Shift+F10 ends the clip one frame before the game would wait. Every clip is an unbroken run | By design, frames are dropped and the gap is marked, so the game is never held up |
 | Recording | F10 / Shift+F10, fixed or longest-possible clips | Start / stop key, records until stopped |
 | Reading recordings | One file per input and frame plus a text file of parameters; `cybocap.py` exports NumPy, EXR, PNG, MP4, CSV / JSON, and nr-record | Their own binary format and reader; replay through real upscaler DLLs; a side-by-side viewer |
