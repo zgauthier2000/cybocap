@@ -55,6 +55,39 @@ In short: nr-record covers more (APIs, features, the upscaled output, replay and
 that any language can read. `cybocap.py nrrecord` converts a CyboCap clip into an nr-record recording, so their replay and viewer can use it
 (checked with our own decoder, not with their tools).
 
+## Prerequisites
+
+**To record (the DLL)**
+
+| | |
+|---|---|
+| Operating system | Windows 10 or 11, 64-bit; or Linux with Proton / Wine (where it was tested) |
+| Game | A D3D12 game that OptiScaler can run with an FSR 3.1 or FSR 4 upscaler (the game's own FSR, or its DLSS / XeSS inputs translated by OptiScaler) |
+| OptiScaler | A current release ([OptiScaler](https://github.com/optiscaler/OptiScaler)), set up for the game and working **before** you add CyboCap. Tested with OptiScaler 10.0 (development build) |
+| FSR DLLs | OptiScaler's folder must hold AMD's FidelityFX loader and upscaler DLLs: `amd_fidelityfx_loader_dx12.dll` and `amd_fidelityfx_upscaler_dx12.dll` (FidelityFX SDK 2.x, as OptiScaler uses for FSR 3.1.4 and later). CyboCap goes in front of the upscaler DLL |
+| GPU | Any GPU that runs FSR 3.1 in D3D12 (AMD, NVIDIA, Intel). With `FastUpscaler=1` (default) FSR runs as FSR 3.1.x, so FSR 4 support is not needed |
+| Memory | 16 GB RAM or more; 32 GB recommended. While a clip is recorded CyboCap holds up to 128 frames in RAM (about 4 to 9 GB, depending on the render size); on 16 GB set `Slots=48` or lower |
+| Disk | An SSD, ideally NVMe, with room for clips: about 5.5 GB per 2-second clip at a 2258x1270 render size (uncompressed). Long clips need a fast drive (see Recording) |
+
+The DLL is built as a single file with its runtime included: no Visual C++ redistributable or other install is needed.
+
+**Windows notes**
+- **Antivirus:** a DLL that stands in for another DLL can be flagged or quarantined. If the game stops loading FSR after you add CyboCap, check your antivirus history. Only add an exclusion for the game folder if you trust the download (check the SHA-256 on the release page).
+- **Anti-cheat:** do not use CyboCap (or OptiScaler) in online games with anti-cheat.
+- **Folder rights:** games under `C:\Program Files` may block writing clips next to the DLL. Set `Folder=` in `cybocap.ini` to a folder you can write to, for example `Folder=D:\CyboCap\clips`.
+- **Windows is untested so far** (the DLL has only run under Proton on Linux). Reports are welcome as issues: your GPU, the game, and `cybocap.log`.
+
+**To read, export, pack or share clips (the Python tools)**
+
+| | Windows | Linux |
+|---|---|---|
+| Python | 3.10 or newer from [python.org](https://www.python.org/downloads/) (tested with 3.12). The `py` launcher it installs runs the tools: `py tools\cybocap.py info <clip>` | Your distribution's `python3` (3.10 or newer) |
+| Packages | `py -m pip install -r requirements.txt` (numpy, zstandard, Pillow) | `python3 -m pip install -r requirements.txt`, or the distribution's packages |
+| ffmpeg (only for `--mp4`) | `winget install Gyan.FFmpeg`, or a build from [ffmpeg.org](https://ffmpeg.org/download.html) on your PATH | The distribution's `ffmpeg` package |
+| Space | Exports and packing need free space next to the clip: up to the clip's size again | same |
+
+The tools were run on Windows 11 with Python 3.12 (every command; MP4 export not tested there).
+
 ## Install
 
 1. Set the game up with OptiScaler and an FSR 3.1 or FSR 4 upscaler as usual, and check it runs.
